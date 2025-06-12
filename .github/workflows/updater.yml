@@ -59,9 +59,12 @@ jobs:
           echo "Default configuration: $DEFAULT_CONFIG"
           
           # Create JSON array for matrix strategy
-          MATRIX_JSON=$(echo "$CONFIGS" | jq -R -s -c 'split("\n")[:-1]')
+          MATRIX_JSON=$(echo "$CONFIGS" | tr ' ' '\n' | jq -R -s -c 'split("\n")[:-1]')
           
-          echo "configs=$CONFIGS" >> $GITHUB_OUTPUT
+          # Convert CONFIGS to a space-separated string for output
+          CONFIGS_STR=$(echo "$CONFIGS" | tr '\n' ' ' | sed 's/ *$//')
+          
+          echo "configs=$CONFIGS_STR" >> $GITHUB_OUTPUT
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
           echo "default=$DEFAULT_CONFIG" >> $GITHUB_OUTPUT
 
@@ -124,7 +127,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -143,9 +146,9 @@ jobs:
           grep "SEAWEEDFS_VERSION" Makefile
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
           commit-message: "chore: update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
           title: "Update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
           body: |
