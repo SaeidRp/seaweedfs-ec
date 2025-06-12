@@ -234,9 +234,10 @@ jobs:
           DOCKERFILE_SUFFIX=$(echo "${{ matrix.ec_config }}" | sed 's/-//g')
           DOCKERFILE="Dockerfile.ec$DOCKERFILE_SUFFIX"
           
-          # Generate image name
+          # Generate image name (force repository to lowercase)
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_SUFFIX="seaweedfs-ec$DOCKERFILE_SUFFIX"
-          IMAGE_NAME="${{ env.REGISTRY }}/${{ github.repository }}/$IMAGE_SUFFIX"
+          IMAGE_NAME="${{ env.REGISTRY }}/${REPO_LC}/$IMAGE_SUFFIX"
           
           echo "dockerfile=$DOCKERFILE" >> $GITHUB_OUTPUT
           echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
