@@ -1,0 +1,304 @@
+name: SeaweedFS EC Automated Docker Builder
+
+on:
+  schedule:
+    # Run every 1 hour
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_version:
+        description: 'Force specific SeaweedFS version'
+        required: false
+        type: string
+      ec_config:
+        description: 'EC configuration to build (default: all available)'
+        required: false
+        type: string
+        default: 'all'
+      build_all_configs:
+        description: 'Build all available EC configurations'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - 'Makefile'
+      - 'Dockerfile.*'
+      - 'patches/**'
+      - '.github/workflows/updater.yml'
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  detect-configs:
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.get-configs.outputs.configs }}
+      config_matrix: ${{ steps.get-configs.outputs.matrix }}
+      default_config: ${{ steps.get-configs.outputs.default }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect available EC configurations
+        id: get-configs
+        run: |
+          # Get all available EC configurations from Dockerfiles
+          CONFIGS=$(ls Dockerfile.ec* 2>/dev/null | sed 's/Dockerfile\.ec//' | sed 's/\([0-9]\)\([0-9]\)/\1-\2/g' | sort)
+          DEFAULT_CONFIG=$(echo "$CONFIGS" | head -1)
+          
+          if [ -z "$CONFIGS" ]; then
+            echo "No EC configuration Dockerfiles found!"
+            exit 1
+          fi
+          
+          echo "Available configurations: $CONFIGS"
+          echo "Default configuration: $DEFAULT_CONFIG"
+          
+          # Create JSON array for matrix strategy
+          MATRIX_JSON=$(echo "$CONFIGS" | jq -R -s -c 'split("\n")[:-1]')
+          
+          echo "configs=$CONFIGS" >> $GITHUB_OUTPUT
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+          echo "default=$DEFAULT_CONFIG" >> $GITHUB_OUTPUT
+
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      current_version: ${{ steps.get-current.outputs.version }}
+      latest_version: ${{ steps.get-latest.outputs.version }}
+      needs_update: ${{ steps.compare.outputs.needs_update }}
+      version_to_use: ${{ steps.determine-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get current version from Makefile
+        id: get-current
+        run: |
+          CURRENT=$(grep -E '^SEAWEEDFS_VERSION \?= ' Makefile | sed 's/SEAWEEDFS_VERSION ?= //')
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Get latest SeaweedFS release
+        id: get-latest
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/seaweedfs/seaweedfs/releases/latest | jq -r .tag_name)
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest version: $LATEST"
+
+      - name: Determine version to use
+        id: determine-version
+        run: |
+          if [[ "${{ github.event.inputs.force_version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.force_version }}"
+            echo "Using forced version: $VERSION"
+          else
+            VERSION="${{ steps.get-latest.outputs.version }}"
+            echo "Using latest version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Compare versions
+        id: compare
+        run: |
+          CURRENT="${{ steps.get-current.outputs.version }}"
+          TARGET="${{ steps.determine-version.outputs.version }}"
+          
+          if [[ "$CURRENT" != "$TARGET" ]]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "Version update needed: $CURRENT -> $TARGET"
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "No update needed: $CURRENT"
+          fi
+
+  update-version:
+    needs: check-version
+    if: needs.check-version.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Update version in Makefile
+        run: |
+          NEW_VERSION="${{ needs.check-version.outputs.version_to_use }}"
+          echo "Updating to version: $NEW_VERSION"
+          
+          # Update the Makefile
+          sed -i "s/^SEAWEEDFS_VERSION ?= .*/SEAWEEDFS_VERSION ?= $NEW_VERSION/" Makefile
+          
+          # Verify the change
+          grep "SEAWEEDFS_VERSION" Makefile
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
+          title: "Update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
+          body: |
+            ## 🔄 Automated SeaweedFS Version Update
+            
+            This PR updates SeaweedFS from `${{ needs.check-version.outputs.current_version }}` to `${{ needs.check-version.outputs.version_to_use }}`.
+            
+            ### Changes
+            - Updated `SEAWEEDFS_VERSION` in Makefile
+            - This will trigger automatic Docker image builds for all EC configurations when merged
+            
+            ### What happens after merge:
+            1. ✅ New Docker images will be built for all available EC configurations
+            2. ✅ Multi-platform images (amd64, arm64) will be pushed to GHCR
+            3. ✅ Images will be tagged as both `${{ needs.check-version.outputs.version_to_use }}` and `latest`
+            
+            ### Available EC Configurations
+            This build will create images for all available configurations in the `Dockerfile.ec*` files.
+            
+            ### Release Notes
+            See [SeaweedFS Release Notes](https://github.com/seaweedfs/seaweedfs/releases/tag/${{ needs.check-version.outputs.version_to_use }}) for details on this version.
+            
+            ---
+            🤖 *This PR was created automatically by the SeaweedFS EC updater workflow.*
+          branch: update-seaweedfs-${{ needs.check-version.outputs.version_to_use }}
+          delete-branch: true
+          draft: false
+
+  build-and-push:
+    needs: [check-version, detect-configs]
+    # Run on manual trigger, main branch push, or when there's a version update
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        ec_config: ${{ fromJson(needs.detect-configs.outputs.config_matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version from Makefile
+        id: get-version
+        run: |
+          VERSION=$(grep -E '^SEAWEEDFS_VERSION \?= ' Makefile | sed 's/SEAWEEDFS_VERSION ?= //')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Check if specific config requested
+        id: check-config
+        run: |
+          REQUESTED_CONFIG="${{ github.event.inputs.ec_config }}"
+          CURRENT_CONFIG="${{ matrix.ec_config }}"
+          BUILD_ALL="${{ github.event.inputs.build_all_configs }}"
+          
+          # Skip if specific config requested and this isn't it
+          if [[ "$REQUESTED_CONFIG" != "" && "$REQUESTED_CONFIG" != "all" && "$REQUESTED_CONFIG" != "$CURRENT_CONFIG" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping $CURRENT_CONFIG (requested: $REQUESTED_CONFIG)"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Building $CURRENT_CONFIG"
+          fi
+
+      - name: Set build variables
+        id: build-vars
+        if: steps.check-config.outputs.skip == 'false'
+        run: |
+          # Convert config format (e.g., "9-3" -> "93" for Dockerfile name)
+          DOCKERFILE_SUFFIX=$(echo "${{ matrix.ec_config }}" | sed 's/-//g')
+          DOCKERFILE="Dockerfile.ec$DOCKERFILE_SUFFIX"
+          
+          # Generate image name
+          IMAGE_SUFFIX="seaweedfs-ec$DOCKERFILE_SUFFIX"
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ github.repository }}/$IMAGE_SUFFIX"
+          
+          echo "dockerfile=$DOCKERFILE" >> $GITHUB_OUTPUT
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "image_suffix=$IMAGE_SUFFIX" >> $GITHUB_OUTPUT
+          
+          echo "Using Dockerfile: $DOCKERFILE"
+          echo "Image name: $IMAGE_NAME"
+
+      - name: Verify Dockerfile exists
+        if: steps.check-config.outputs.skip == 'false'
+        run: |
+          if [ ! -f "${{ steps.build-vars.outputs.dockerfile }}" ]; then
+            echo "❌ Error: ${{ steps.build-vars.outputs.dockerfile }} not found"
+            exit 1
+          fi
+          echo "✅ Dockerfile found: ${{ steps.build-vars.outputs.dockerfile }}"
+
+      - name: Build and push Docker images
+        if: steps.check-config.outputs.skip == 'false'
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg BRANCH=${{ steps.get-version.outputs.version }} \
+            -f ${{ steps.build-vars.outputs.dockerfile }} \
+            -t ${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }} \
+            -t ${{ steps.build-vars.outputs.image_name }}:latest \
+            --push \
+            .
+
+      - name: Generate build summary
+        if: steps.check-config.outputs.skip == 'false'
+        run: |
+          echo "## 🐳 Docker Build Summary - EC ${{ matrix.ec_config }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SeaweedFS Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**EC Configuration:** \`${{ matrix.ec_config }}\` ($(echo ${{ matrix.ec_config }} | cut -d'-' -f1) data + $(echo ${{ matrix.ec_config }} | cut -d'-' -f2) parity shards)" >> $GITHUB_STEP_SUMMARY
+          echo "**Dockerfile:** \`${{ steps.build-vars.outputs.dockerfile }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Published Image" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.build-vars.outputs.image_name }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  build-summary:
+    needs: [build-and-push, detect-configs]
+    if: always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate overall summary
+        run: |
+          echo "## 🎯 Overall Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Available EC Configurations:** ${{ needs.detect-configs.outputs.configs }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 EC Configuration Details" >> $GITHUB_STEP_SUMMARY
+          echo "| Configuration | Data Shards | Parity Shards | Total Shards | Storage Overhead |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------|-------------|---------------|--------------|------------------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Parse configurations and generate table
+          for config in ${{ needs.detect-configs.outputs.configs }}; do
+            data=$(echo $config | cut -d'-' -f1)
+            parity=$(echo $config | cut -d'-' -f2)
+            total=$((data + parity))
+            overhead=$(( (parity * 100) / data ))
+            echo "| EC $config | $data | $parity | $total | ${overhead}% |" >> $GITHUB_STEP_SUMMARY
+          done
