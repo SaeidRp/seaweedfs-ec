@@ -4,7 +4,7 @@
 
 # Configuration
 EC_CONFIG ?= 9-3
-SEAWEEDFS_VERSION ?= 3.80
+SEAWEEDFS_VERSION ?= 3.90
 DOCKER_REGISTRY = ghcr.io
 GITHUB_ACTOR ?= $(shell whoami)
 GITHUB_REPOSITORY ?= $(GITHUB_ACTOR)/seaweedfs_ec
