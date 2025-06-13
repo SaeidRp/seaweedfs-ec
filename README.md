@@ -5,7 +5,6 @@ Build custom [SeaweedFS](https://github.com/seaweedfs/seaweedfs) Docker images w
 ## Features
 - Multiple EC configs (auto-detected)
 - One Dockerfile per EC config
-- Multi-platform images (AMD64, ARM64)
 - Automated version updates & builds (GitHub Actions)
 - Easy to add new EC configs
 

@@ -16,7 +16,7 @@ IMAGE_NAME = $(DOCKER_REGISTRY)/$(GITHUB_REPOSITORY)/$(IMAGE_SUFFIX)
 
 # Docker build arguments
 DOCKER_BUILDX_BUILDER = multiplatform-builder
-PLATFORMS = linux/amd64,linux/arm64
+PLATFORMS = linux/amd64
 
 # Available EC configurations (auto-detected from Dockerfiles)
 AVAILABLE_CONFIGS = $(patsubst Dockerfile.ec%,%,$(wildcard Dockerfile.ec*))

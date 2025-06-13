@@ -162,7 +162,7 @@ jobs:
             
             ### What happens after merge:
             1. ✅ New Docker images will be built for all available EC configurations
-            2. ✅ Multi-platform images (amd64, arm64) will be pushed to GHCR
+            2. ✅ Multi-platform images (amd64) will be pushed to GHCR
             3. ✅ Images will be tagged as both `${{ needs.check-version.outputs.version_to_use }}` and `latest`
             
             ### Available EC Configurations
@@ -259,7 +259,7 @@ jobs:
         if: steps.check-config.outputs.skip == 'false'
         run: |
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
+            --platform linux/amd64 \
             --build-arg BRANCH=${{ steps.get-version.outputs.version }} \
             -f ${{ steps.build-vars.outputs.dockerfile }} \
             -t ${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }} \
@@ -275,7 +275,7 @@ jobs:
           echo "**SeaweedFS Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**EC Configuration:** \`${{ matrix.ec_config }}\` ($(echo ${{ matrix.ec_config }} | cut -d'-' -f1) data + $(echo ${{ matrix.ec_config }} | cut -d'-' -f2) parity shards)" >> $GITHUB_STEP_SUMMARY
           echo "**Dockerfile:** \`${{ steps.build-vars.outputs.dockerfile }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Published Image" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
