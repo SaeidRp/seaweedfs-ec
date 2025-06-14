@@ -16,13 +16,13 @@ IMAGE_NAME = $(DOCKER_REGISTRY)/$(GITHUB_REPOSITORY)/$(IMAGE_SUFFIX)
 
 # Docker build arguments
 DOCKER_BUILDX_BUILDER = multiplatform-builder
-PLATFORMS = linux/amd64
+PLATFORMS = linux/amd64,linux/arm64
 
 # Available EC configurations (auto-detected from Dockerfiles)
 AVAILABLE_CONFIGS = $(patsubst Dockerfile.ec%,%,$(wildcard Dockerfile.ec*))
 AVAILABLE_CONFIGS_FORMATTED = $(shell echo "$(AVAILABLE_CONFIGS)" | sed 's/\([0-9]\)\([0-9]\)/\1-\2/g')
 
-.PHONY: help build build-multiplatform push list-configs validate-config update-version login check-latest build-all build-all-multiplatform setup-buildx clean create-dockerfile
+.PHONY: help build build-multiplatform push list-configs validate-config update-version login check-latest build-all build-all-multiplatform setup-buildx
 
 help: ## Show this help message
 	@echo "SeaweedFS EC Automated Docker Builder"
@@ -47,7 +47,6 @@ help: ## Show this help message
 	@echo "  make build                           # Build EC $(EC_CONFIG) (default)"
 	@echo "  make build EC_CONFIG=10-2           # Build EC 10,2"
 	@echo "  make build-all                      # Build all available configurations"
-	@echo "  make create-dockerfile EC_CONFIG=12-4  # Create new Dockerfile for EC 12,4"
 
 list-configs: ## List all available EC configurations
 	@echo "Available EC Configurations:"
@@ -76,7 +75,6 @@ validate-config: ## Validate that the specified EC configuration exists
 	fi
 	@if [ ! -f "patches/ec-$(EC_CONFIG).patch" ]; then \
 		echo "❌ Error: Patch file 'patches/ec-$(EC_CONFIG).patch' not found"; \
-		echo "Create it first or use: make create-patch EC_CONFIG=$(EC_CONFIG)"; \
 		exit 1; \
 	fi
 	@echo "✅ Using EC configuration: $(EC_CONFIG)"

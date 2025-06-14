@@ -2,7 +2,7 @@ name: SeaweedFS EC Automated Docker Builder
 
 on:
   schedule:
-    # Run every 1 hour
+    # Run every hour
     - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
@@ -20,14 +20,6 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    branches:
-      - main
-    paths:
-      - 'Makefile'
-      - 'Dockerfile.*'
-      - 'patches/**'
-      - '.github/workflows/updater.yml'
 
 env:
   REGISTRY: ghcr.io
@@ -68,119 +60,29 @@ jobs:
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
           echo "default=$DEFAULT_CONFIG" >> $GITHUB_OUTPUT
 
-  check-version:
+  get-version:
     runs-on: ubuntu-latest
     outputs:
-      current_version: ${{ steps.get-current.outputs.version }}
-      latest_version: ${{ steps.get-latest.outputs.version }}
-      needs_update: ${{ steps.compare.outputs.needs_update }}
-      version_to_use: ${{ steps.determine-version.outputs.version }}
+      version: ${{ steps.determine-version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get current version from Makefile
-        id: get-current
-        run: |
-          CURRENT=$(grep -E '^SEAWEEDFS_VERSION \?= ' Makefile | sed 's/SEAWEEDFS_VERSION ?= //')
-          echo "version=$CURRENT" >> $GITHUB_OUTPUT
-          echo "Current version: $CURRENT"
-
-      - name: Get latest SeaweedFS release
-        id: get-latest
-        run: |
-          LATEST=$(curl -s https://api.github.com/repos/seaweedfs/seaweedfs/releases/latest | jq -r .tag_name)
-          echo "version=$LATEST" >> $GITHUB_OUTPUT
-          echo "Latest version: $LATEST"
-
-      - name: Determine version to use
+      - name: Determine version to build
         id: determine-version
         run: |
           if [[ "${{ github.event.inputs.force_version }}" != "" ]]; then
             VERSION="${{ github.event.inputs.force_version }}"
             echo "Using forced version: $VERSION"
           else
-            VERSION="${{ steps.get-latest.outputs.version }}"
-            echo "Using latest version: $VERSION"
+            # Get latest SeaweedFS release
+            VERSION=$(curl -s https://api.github.com/repos/seaweedfs/seaweedfs/releases/latest | jq -r .tag_name)
+            echo "Using latest SeaweedFS version: $VERSION"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Compare versions
-        id: compare
-        run: |
-          CURRENT="${{ steps.get-current.outputs.version }}"
-          TARGET="${{ steps.determine-version.outputs.version }}"
-          
-          if [[ "$CURRENT" != "$TARGET" ]]; then
-            echo "needs_update=true" >> $GITHUB_OUTPUT
-            echo "Version update needed: $CURRENT -> $TARGET"
-          else
-            echo "needs_update=false" >> $GITHUB_OUTPUT
-            echo "No update needed: $CURRENT"
-          fi
-
-  update-version:
-    needs: check-version
-    if: needs.check-version.outputs.needs_update == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Update version in Makefile
-        run: |
-          NEW_VERSION="${{ needs.check-version.outputs.version_to_use }}"
-          echo "Updating to version: $NEW_VERSION"
-          
-          # Update the Makefile
-          sed -i "s/^SEAWEEDFS_VERSION ?= .*/SEAWEEDFS_VERSION ?= $NEW_VERSION/" Makefile
-          
-          # Verify the change
-          grep "SEAWEEDFS_VERSION" Makefile
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          commit-message: "chore: update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
-          title: "Update SeaweedFS to ${{ needs.check-version.outputs.version_to_use }}"
-          body: |
-            ## 🔄 Automated SeaweedFS Version Update
-            
-            This PR updates SeaweedFS from `${{ needs.check-version.outputs.current_version }}` to `${{ needs.check-version.outputs.version_to_use }}`.
-            
-            ### Changes
-            - Updated `SEAWEEDFS_VERSION` in Makefile
-            - This will trigger automatic Docker image builds for all EC configurations when merged
-            
-            ### What happens after merge:
-            1. ✅ New Docker images will be built for all available EC configurations
-            2. ✅ Multi-platform images (amd64) will be pushed to GHCR
-            3. ✅ Images will be tagged as both `${{ needs.check-version.outputs.version_to_use }}` and `latest`
-            
-            ### Available EC Configurations
-            This build will create images for all available configurations in the `Dockerfile.ec*` files.
-            
-            ### Release Notes
-            See [SeaweedFS Release Notes](https://github.com/seaweedfs/seaweedfs/releases/tag/${{ needs.check-version.outputs.version_to_use }}) for details on this version.
-            
-            ---
-            🤖 *This PR was created automatically by the SeaweedFS EC updater workflow.*
-          branch: update-seaweedfs-${{ needs.check-version.outputs.version_to_use }}
-          delete-branch: true
-          draft: false
-
   build-and-push:
-    needs: [check-version, detect-configs]
-    # Run on manual trigger, main branch push, or when there's a version update
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    needs: [get-version, detect-configs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -203,12 +105,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version from Makefile
-        id: get-version
-        run: |
-          VERSION=$(grep -E '^SEAWEEDFS_VERSION \?= ' Makefile | sed 's/SEAWEEDFS_VERSION ?= //')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.ec_config }}-${{ needs.get-version.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.ec_config }}-
+            ${{ runner.os }}-buildx-
 
       - name: Check if specific config requested
         id: check-config
@@ -259,38 +163,49 @@ jobs:
         if: steps.check-config.outputs.skip == 'false'
         run: |
           docker buildx build \
-            --platform linux/amd64 \
-            --build-arg BRANCH=${{ steps.get-version.outputs.version }} \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg BRANCH=${{ needs.get-version.outputs.version }} \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --cache-from type=registry,ref=${{ steps.build-vars.outputs.image_name }}:cache \
+            --cache-to type=registry,ref=${{ steps.build-vars.outputs.image_name }}:cache,mode=max \
             -f ${{ steps.build-vars.outputs.dockerfile }} \
-            -t ${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }} \
+            -t ${{ steps.build-vars.outputs.image_name }}:${{ needs.get-version.outputs.version }} \
             -t ${{ steps.build-vars.outputs.image_name }}:latest \
             --push \
             .
+
+      - name: Move cache
+        if: steps.check-config.outputs.skip == 'false'
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Generate build summary
         if: steps.check-config.outputs.skip == 'false'
         run: |
           echo "## 🐳 Docker Build Summary - EC ${{ matrix.ec_config }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**SeaweedFS Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SeaweedFS Version:** \`${{ needs.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**EC Configuration:** \`${{ matrix.ec_config }}\` ($(echo ${{ matrix.ec_config }} | cut -d'-' -f1) data + $(echo ${{ matrix.ec_config }} | cut -d'-' -f2) parity shards)" >> $GITHUB_STEP_SUMMARY
           echo "**Dockerfile:** \`${{ steps.build-vars.outputs.dockerfile }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Platforms:** linux/amd64" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Published Image" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ steps.build-vars.outputs.image_name }}:${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.build-vars.outputs.image_name }}:${{ needs.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ steps.build-vars.outputs.image_name }}:latest\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
   build-summary:
-    needs: [build-and-push, detect-configs]
-    if: always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    needs: [build-and-push, detect-configs, get-version]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Generate overall summary
         run: |
           echo "## 🎯 Overall Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SeaweedFS Version:** \`${{ needs.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Available EC Configurations:** ${{ needs.detect-configs.outputs.configs }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

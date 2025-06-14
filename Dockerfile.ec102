@@ -1,9 +1,9 @@
-FROM golang:1.24 as builder
+FROM golang:1.24 AS builder
 
 RUN apt-get update
 RUN apt-get install -y build-essential libsnappy-dev zlib1g-dev libbz2-dev libgflags-dev liblz4-dev libzstd-dev
 
-ENV ROCKSDB_VERSION v10.2.1
+ENV ROCKSDB_VERSION=v10.2.1
 
 # build RocksDB
 RUN cd /tmp && \
@@ -17,14 +17,15 @@ ENV CGO_LDFLAGS "-L/tmp/rocksdb -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 
 
 # build SeaweedFS
 RUN mkdir -p /go/src/github.com/seaweedfs/
-RUN git clone https://github.com/seaweedfs/seaweedfs /go/src/github.com/seaweedfs/seaweedfs
+WORKDIR /go/src/github.com/seaweedfs/seaweedfs
+RUN git clone https://github.com/seaweedfs/seaweedfs .
 ARG BRANCH=${BRANCH:-master}
-RUN cd /go/src/github.com/seaweedfs/seaweedfs && git checkout $BRANCH
+RUN git checkout $BRANCH
 
-COPY patches/ec-10-2.patch /go/src/github.com/seaweedfs/seaweedfs/ec-10-2.patch
-RUN cd /go/src/github.com/seaweedfs/seaweedfs && git apply ec-10-2.patch
+COPY patches/ec-10-2.patch ./ec-10-2.patch
+RUN git apply ec-10-2.patch
 
-RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
+RUN cd weed \
   && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(git rev-parse --short HEAD)" \
   && go install -tags "5BytesOffset rocksdb" -ldflags "-extldflags -static ${LDFLAGS}"
 
