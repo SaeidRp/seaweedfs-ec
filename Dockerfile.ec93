@@ -18,8 +18,10 @@ ENV CGO_LDFLAGS "-L/tmp/rocksdb -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 
 # build SeaweedFS
 RUN mkdir -p /go/src/github.com/seaweedfs/
 WORKDIR /go/src/github.com/seaweedfs/seaweedfs
-RUN git clone https://github.com/seaweedfs/seaweedfs .
+
 ARG BRANCH=${BRANCH:-master}
+
+RUN git clone https://github.com/seaweedfs/seaweedfs .
 RUN git checkout $BRANCH
 
 COPY patches/ec-9-3.patch ./ec-9-3.patch
