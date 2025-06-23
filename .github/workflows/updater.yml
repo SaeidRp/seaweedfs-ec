@@ -2,8 +2,8 @@ name: SeaweedFS EC Automated Docker Builder
 
 on:
   schedule:
-    # Run every hour
-    - cron: "0 * * * *"
+    # Run every 6 hours
+    - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       force_version:
