@@ -1,15 +1,15 @@
 diff --git a/weed/storage/erasure_coding/ec_encoder.go b/weed/storage/erasure_coding/ec_encoder.go
-index eeeb156e6..51aa8925e 100644
+index eeeb156..51aa892 100644
 --- a/weed/storage/erasure_coding/ec_encoder.go
 +++ b/weed/storage/erasure_coding/ec_encoder.go
 @@ -15,8 +15,8 @@ import (
  )
-
+ 
  const (
--       DataShardsCount             = 10
--       ParityShardsCount           = 4
-+       DataShardsCount             = 9
-+       ParityShardsCount           = 3
-        TotalShardsCount            = DataShardsCount + ParityShardsCount
-        MinTotalDisks               = TotalShardsCount/ParityShardsCount + 1
-        ErasureCodingLargeBlockSize = 1024 * 1024 * 1024 // 1GB
+-	DataShardsCount             = 10
+-	ParityShardsCount           = 4
++	DataShardsCount             = 9
++	ParityShardsCount           = 3
+ 	TotalShardsCount            = DataShardsCount + ParityShardsCount
+ 	MinTotalDisks               = TotalShardsCount/ParityShardsCount + 1
+ 	ErasureCodingLargeBlockSize = 1024 * 1024 * 1024 // 1GB
