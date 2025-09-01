@@ -3,7 +3,7 @@ FROM golang:1.24 AS builder
 RUN apt-get update
 RUN apt-get install -y build-essential libsnappy-dev zlib1g-dev libbz2-dev libgflags-dev liblz4-dev libzstd-dev
 
-ENV ROCKSDB_VERSION=v10.2.1
+ENV ROCKSDB_VERSION=v10.4.2
 
 # build RocksDB
 RUN cd /tmp && \
@@ -29,6 +29,7 @@ RUN git apply -vvv ec-9-3.patch
 
 RUN cd weed \
   && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(git rev-parse --short HEAD)" \
+  && export GODEBUG=http2client=0 \
   && go install -tags "5BytesOffset rocksdb" -ldflags "-extldflags -static ${LDFLAGS}"
 
 
