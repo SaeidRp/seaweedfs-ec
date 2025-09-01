@@ -25,7 +25,7 @@ RUN git clone https://github.com/seaweedfs/seaweedfs .
 RUN git checkout $BRANCH
 
 COPY patches/ec-10-2.patch ./ec-10-2.patch
-RUN git apply ec-10-2.patch
+RUN git apply -vvv ec-10-2.patch
 
 RUN cd weed \
   && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(git rev-parse --short HEAD)" \
