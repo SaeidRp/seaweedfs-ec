@@ -1,24 +1,13 @@
-From 5be8ee4deb20969e859a4ac3158eaad49c970fcb Mon Sep 17 00:00:00 2001
-From: SaeidRp <saeed.rahmanpour@gmail.com>
-Date: Tue, 10 Jun 2025 17:37:53 +0330
-Subject: [PATCH] Customize Erasure Coding to EC 10,2
-
----
- weed/storage/erasure_coding/ec_encoder.go | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
 diff --git a/weed/storage/erasure_coding/ec_encoder.go b/weed/storage/erasure_coding/ec_encoder.go
-index a46643f57..00c48abe8 100644
+index eeeb156e6..51aa8925e 100644
 --- a/weed/storage/erasure_coding/ec_encoder.go
 +++ b/weed/storage/erasure_coding/ec_encoder.go
-@@ -16,7 +16,7 @@ import (
+@@ -15,8 +15,8 @@ import (
+ )
 
  const (
- 	DataShardsCount             = 10
--	ParityShardsCount           = 4
-+	ParityShardsCount           = 2
- 	TotalShardsCount            = DataShardsCount + ParityShardsCount
- 	ErasureCodingLargeBlockSize = 1024 * 1024 * 1024 // 1GB
- 	ErasureCodingSmallBlockSize = 1024 * 1024        // 1MB
--- 
-2.39.5 (Apple Git-154) 
+-       ParityShardsCount           = 4
++       ParityShardsCount           = 2
+        TotalShardsCount            = DataShardsCount + ParityShardsCount
+        MinTotalDisks               = TotalShardsCount/ParityShardsCount + 1
+        ErasureCodingLargeBlockS
